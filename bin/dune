@@ -1,0 +1,4 @@
+(executable
+ (public_name bpe-huffman)
+ (name main)
+ (libraries bpe_huffman camomile))
