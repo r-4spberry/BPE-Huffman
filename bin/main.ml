@@ -39,7 +39,7 @@ let string_of_table table =
   aux 0 (List.rev table)
 
 
-let replace (from : int * int) (to' : int) (bytes : int list) =
+let replace_pair (from : int * int) (to' : int) (bytes : int list) =
   let a, b = from in
   let rec aux out = function
     | [] -> List.rev out
@@ -49,7 +49,17 @@ let replace (from : int * int) (to' : int) (bytes : int list) =
   aux [] bytes
 
 
-let compress filename =
+let replace_to_pair (from : int) (to' : int * int) (bytes : int list) =
+  let a, b = to' in
+  let rec aux out = function
+    | [] -> List.rev out
+    | x :: t when x = from -> aux (b :: a :: out) t
+    | h :: t -> aux (h :: out) t
+  in
+  aux [] bytes
+
+
+let compress filename min_freq =
   let as_string = In_channel.with_open_bin filename In_channel.input_all in
   let bytes = string_to_bytes as_string in
   let rec create_pair_table = function
@@ -63,29 +73,50 @@ let compress filename =
     let result = most_frequent text in
     let pair, frequency = result in
     Printf.printf
-      "Most frequent pair: '%d' '%d' with frequency: %d. New index: %d\n"
+      "Most frequent pair: '%d' '%d' with frequency: %d. New index: %d\n%!"
       (fst pair)
       (snd pair)
       frequency
       (List.length pair_table);
-    if frequency <= 2
+    if frequency <= min_freq
     then (
       print_endline (string_of_table pair_table);
       Printf.printf
-        "Old len: %d, New len: %d, New pairs: %d"
+        "Old len: %d, New len: %d, New pairs: %d\n%!"
         len
         (List.length text)
-        (256 - List.length pair_table);
-      text)
-    else loop (replace pair (List.length pair_table) text) (pair :: pair_table)
+        (List.length pair_table - 256);
+      text, pair_table)
+    else loop (replace_pair pair (List.length pair_table) text) (pair :: pair_table)
   in
-  let _result = loop bytes pair_table in
-  ()
+  loop bytes pair_table
 
+
+let decompress bytes pair_table =
+  let rec aux bytes pair_table n =
+    match pair_table with
+    | (255, -1) :: t -> bytes
+    | h :: t -> aux (replace_to_pair n h bytes) t (n - 1)
+    | _ -> assert false
+  in
+  aux bytes pair_table (List.length pair_table - 1)
+ 
+let write_file file s =
+  Out_channel.with_open_bin file (fun oc ->
+    Out_channel.output_string oc s
+  )
 
 let () =
-  match Sys.argv with
-  | [| program_name; filename |] -> compress filename
+  let filename, min_freq = match Sys.argv with
+  | [| program_name; filename |] ->
+    filename, 2
+  | [| program_name; filename; min_freq_str |] ->
+    let min_freq = int_of_string min_freq_str in
+    filename, min_freq
   | _ ->
-    print_endline "Usage: bpeh filename";
+    print_endline "Usage: bpeh filename [min_frequency]";
     exit 64
+  in 
+  let compressed_text, pair_table = compress filename 2 in
+  let out = decompress compressed_text pair_table in
+  write_file "result.txt" (bytes_to_string out)
